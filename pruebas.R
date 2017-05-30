@@ -36,3 +36,11 @@ print(emails_fechamax)
 
 
 
+
+temp<-candidatos_maestro %>%
+        filter(((EMAIL %in% emails_fechamax$EMAIL) & (dmy_hms(FECHA_ACTUALIZACION) %in% emails_fechamax$max_fecha))) %>%
+        select(ID_CANDIDATO,EMAIL,FECHA_ACTUALIZACION)  %>%
+        print()
+
+candidatos_maestro <- candidatos_maestro %>%
+        filter(!(EMAIL %in% emails_fechamax$EMAIL))
