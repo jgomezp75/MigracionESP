@@ -4,15 +4,14 @@ output: html_notebook
 ---
 
 Librerías
-
 ```{r}
 library(dplyr)
 library(data.table)
 library(lubridate)
+library(ggplot2)
 ```
 
 Funciones
-
 ```{r}
 isValidEmail <- function(x) {
         grepl("\\<[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}\\>", as.character(x), ignore.case=TRUE)
@@ -20,18 +19,19 @@ isValidEmail <- function(x) {
 ```
 
 
-El objetivo de este script es el filtrado de los datos de origen de e-Preselec ESP para su 
-carga en Cornerstone para el ámbito Holding.
+#Objetivo
+
+El objetivo de este script es el filtrado de los datos de origen de e-Preselec ESP para su carga en Cornerstone para el ámbito Holding.
 
 En la subcarpeta datos_originales/ están todos los archivos fuente obtenidos de e-Preselec ESP
 
 En la subcarpeta output/ dejaremos los ficheros de salida ya filtrados y limpiados
 
-1. Leemos el fichero de maestro de candidatos y de procesos y nos vamos a guardar una variable con los candidatos que no vamos a poder cargar por estar anonimizados, no tener nombre o no tener email válido
+#Maestro de Candidatos
 
-El criterio será NOMBRE != XXXXX o != "" o EMAIL != "" o EMAIL no válido
+Leemos el fichero de maestro de candidatos y vamos a ir eliminando candidatos por diferentes criterios
 
-
+Primero anonimizados, nombre en blanco, email en blanco, emails con formato inválido
 ```{r}
 nombre <- "datos_originales/01-Candidatos_Datos_Personales.csv"
 fichero_candidatos <- read.csv2(nombre, sep = "~", quote = "", fileEncoding = "UTF-8", stringsAsFactors = TRUE)
@@ -41,44 +41,106 @@ candidatos_maestro <- filter(candidatos_maestro, NOMBRE != "")
 candidatos_maestro <- filter(candidatos_maestro, EMAIL != "")
 emails_incorectos <- filter(candidatos_maestro,!isValidEmail(EMAIL))
 candidatos_maestro <- filter(candidatos_maestro, isValidEmail(EMAIL))
-print("Estos son los emails inválidos que hemos eliminado")
+```
+Estos son una muestra de los emails eliminados por tener un formato inválido
+```{r}
 print(emails_incorectos$EMAIL)
 ```
 
 Tampoco vamos a cargar los candidatos que ya están incorporados como empleados
-
 ```{r}
 candidatos_maestro <- filter(candidatos_maestro, ESTADO != "Incorporado")
 
 ```
 
 También vamos a eliminar los candidatos probablemente de prueba que tienen "infojobs" o "infoempleo" en su correo electrónico
-
 ```{r}
 candidatos_maestro <- filter(candidatos_maestro, !(EMAIL %like% "@infojobs"))
 candidatos_maestro <- filter(candidatos_maestro, !(EMAIL %like% "@infoempleo"))
 candidatos_maestro <- filter(candidatos_maestro, !(EMAIL %like% "@vacio.com"))
 ```
 
-
-
 De los candidatos duplicados cargaremos únicamente una ocurrencia, la de fecha de actualización más reciente. Estos son alugunos de los repetidos
-
 ```{r}
-#agrupamos por email
 emails_repetidos <- candidatos_maestro %>% group_by(EMAIL) %>%
         summarise(count = n()) %>% 
         arrange(desc(count)) %>% filter(count > 1)
 print(emails_repetidos)
 ```
 
+Eliminamos pues los candidatos duplicados, dejando únicamente uno por email, el de fecha de actualización más reciente
 ```{r}
+candidatos_maestro <- candidatos_maestro %>% 
+        arrange(desc(dmy_hms(FECHA_ACTUALIZACION)), desc(ID_CANDIDATO)) %>%
+        distinct(EMAIL,.keep_all = TRUE) %>%
+        arrange(ID_CANDIDATO)
+```
+
+Comprobamos si quedan duplicados
+```{r}
+emails_repetidos <- candidatos_maestro %>% group_by(EMAIL) %>%
+        summarise(count = n()) %>% 
+        arrange(desc(count)) %>% filter(count > 1)
+print(emails_repetidos)
+```
+
+A ver cuántos candidatos nos quedan (por fecha de actualización):
+```{r}
+fechas <- select(candidatos_maestro,ID_CANDIDATO,FECHA_ACTUALIZACION)
+fechas$FECHA_ACTUALIZACION <- as.POSIXct(date(dmy_hms(fechas$FECHA_ACTUALIZACION)))
+ggplot(fechas, aes(FECHA_ACTUALIZACION)) + 
+        geom_histogram(aes(fill=..count..)) +
+        labs(title="Histograma de Candidatos Actualizados (mensual)") +
+        labs(x="Fecha", y="Número de Actualizaciones") + 
+        scale_x_datetime(breaks = date_breaks("18 months"),
+                         labels = date_format("%Y-%b")
+                          )
 
 ```
 
+Y por fecha de alta
+```{r}
+fechas <- select(candidatos_maestro,ID_CANDIDATO,FECHA_ALTA)
+fechas$FECHA_ALTA <- as.POSIXct(date(dmy_hms(fechas$FECHA_ALTA)))
+ggplot(fechas, aes(FECHA_ALTA)) + 
+        geom_histogram(aes(fill=..count..)) +
+        labs(title="Histograma de Candidatos dados de alta (mensual)") +
+        labs(x="Fecha", y="Número de Actualizaciones") + 
+        scale_x_datetime(breaks = date_breaks("18 months"),
+                         labels = date_format("%Y-%b")
+        )
+```
+
+Vamos a ver mejor los últimos dos años, desde Junio del 2015
+
+```{r}
+fechas <- select(candidatos_maestro,ID_CANDIDATO,FECHA_ACTUALIZACION)
+fechas$FECHA_ACTUALIZACION <- as.POSIXct(date(dmy_hms(fechas$FECHA_ACTUALIZACION)))
+ggplot(fechas, aes(FECHA_ACTUALIZACION)) + 
+        geom_histogram(aes(fill=..count..)) +
+        labs(title="Histograma de Candidatos Actualizados (mensual)") +
+        labs(x="Fecha", y="Número de Actualizaciones") + 
+        scale_x_datetime(breaks = date_breaks("2 months"),
+                         labels = date_format("%Y-%b"),
+                         limits = c(as.POSIXct("2015-06-01"), 
+                                    as.POSIXct("2017-06-01"))
+                          )
+
+```
+
+```{r}
+
+fechas <- select(candidatos_maestro,ID_CANDIDATO,FECHA_ALTA)
+fechas$FECHA_ALTA <- as.POSIXct(date(dmy_hms(fechas$FECHA_ALTA)))
+ggplot(fechas, aes(FECHA_ALTA)) + 
+        geom_histogram(aes(fill=..count..)) +
+        labs(title="Histograma de Candidatos dados de alta (mensual)") +
+        labs(x="Fecha", y="Número de Actualizaciones") + 
+        scale_x_datetime(breaks = date_breaks("2 months"),
+                         labels = date_format("%Y-%b"),
+                         limits = c(as.POSIXct("2015-06-01"), 
+                                    as.POSIXct("2017-06-01"))
+        )
+```
 
 
-
-Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
-
-When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file).
