@@ -41,29 +41,49 @@ emails_repetidos <- candidatos_maestro %>% group_by(EMAIL) %>%
         arrange(desc(count)) %>% filter(count > 1)
 print(emails_repetidos)
 
-fechas <- select(candidatos_maestro,ID_CANDIDATO,FECHA_ACTUALIZACION)
-fechas$FECHA_ACTUALIZACION <- as.POSIXct(date(dmy_hms(fechas$FECHA_ACTUALIZACION)))
-ggplot(fechas, aes(x = FECHA_ACTUALIZACION, y = ..count..)) + 
-        geom_histogram(aes(fill=..count..)) +
-        labs(title="Histograma de Candidatos Actualizados (mensual)") +
-        labs(x="Fecha", y="Número de Actualizaciones") + 
-        scale_x_datetime(breaks = date_breaks("2 months"),
-                         labels = date_format("%Y-%b"),
-                         limits = c(as.POSIXct("2015-06-01"), 
-                                    as.POSIXct(now()))
-                          )
+
+nombre <- "datos_originales/19-Procesos_Masivos.csv"
+fichero_masivos <- read.csv2(nombre, sep = "~", quote = "", fileEncoding = "UTF-8", stringsAsFactors = TRUE)
+masivos_maestro <- tbl_df(fichero_masivos)
+
+nombre <- "datos_originales/20-Procesos_Especialistas.csv"
+fichero_especialistas <- read.csv2(nombre, sep = "~", quote = "", fileEncoding = "UTF-8", stringsAsFactors = TRUE)
+especialistas_maestro <- tbl_df(fichero_especialistas)
+
+nombre <- "datos_originales/21-Procesos_Becarios.csv"
+fichero_becarios <- read.csv2(nombre, sep = "~", quote = "", fileEncoding = "UTF-8", stringsAsFactors = TRUE)
+becarios_maestro <- tbl_df(fichero_becarios)
+
+gestores_filtro <- c("Naiara Martínez", "Elena Herbosa", "Sara Abad", "Susana Gutierrez", "")
+procesos_activos <- especialistas_maestro %>%
+                        filter(ESTADO_PROCESO == "Abierto", GESTOR %in% gestores_filtro) %>%
+                        select(ID_PROCESO)
+masivos_filtro <- c("12841","12842")
+procesos_activos <- masivos_maestro %>%
+        filter(ACTIVO == "Sí", ID_PROCESO %in% masivos_filtro) %>%
+        select(ID_PROCESO) %>%
+        bind_rows(procesos_activos)
+becarios_filtro <- c("Naiara Martínez", "Elena Herbosa", "Sara Abad", "Susana Gutierrez", "")
+procesos_activos <- becarios_maestro %>%
+        filter(ESTADO_PROCESO == "Abierto", GESTOR %in% becarios_filtro) %>%
+        select(ID_PROCESO) %>%
+        bind_rows(procesos_activos)
 
 
-fechas <- select(candidatos_maestro,ID_CANDIDATO,FECHA_ALTA)
-fechas$FECHA_ALTA <- as.POSIXct(date(dmy_hms(fechas$FECHA_ALTA)))
-ggplot(fechas, aes(FECHA_ALTA)) + 
-        geom_histogram(aes(fill=..count..)) +
-        labs(title="Histograma de Candidatos dados de alta (mensual)") +
-        labs(x="Fecha", y="Número de Actualizaciones") + 
-        scale_x_datetime(breaks = date_breaks("2 months"),
-                         labels = date_format("%Y-%b"),
-                         limits = c(as.POSIXct("2015-06-01"), 
-                                    as.POSIXct(now()))
-        )
+nombre <- "datos_originales/19-Procesos_Masivos.csv"
+fichero_masivos <- read.csv2(nombre, sep = "~", quote = "", fileEncoding = "UTF-8", stringsAsFactors = TRUE)
+masivos_maestro <- tbl_df(fichero_masivos)
+
+
+
+
+fileNames <- list.files(path = "datos_originales", pattern="*.csv", full.names=T, recursive=FALSE)
+lapply(fileNames, function (x) {
+        t<-read.csv2(x, sep = "~", quote = "", fileEncoding = "UTF-8", stringsAsFactors = TRUE)
+        str(t)
+        rm(t)
+        gc()
+})
+
 
 

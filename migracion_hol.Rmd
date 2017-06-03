@@ -1,6 +1,9 @@
 ---
-title: "Limpieza y Filtrado e-Preselec para la carga de Holding en Cornerstone "
-output: html_notebook
+title: 'Limpieza y Filtrado e-Preselec para la carga de Holding en Cornerstone '
+output:
+  html_notebook:
+    code_folding: hide
+  pdf_document: default
 ---
 
 Librerías
@@ -8,6 +11,7 @@ Librerías
 library(dplyr)
 library(data.table)
 library(lubridate)
+library(scales)
 library(ggplot2)
 ```
 
@@ -19,11 +23,18 @@ isValidEmail <- function(x) {
 ```
 
 
+
 #Objetivo
 
 El objetivo de este script es el filtrado de los datos de origen de e-Preselec ESP para su carga en Cornerstone para el ámbito Holding.
 
 En la subcarpeta datos_originales/ están todos los archivos fuente obtenidos de e-Preselec ESP
+
+```{r}
+files <- list.files(path="datos_originales", pattern="*.csv", full.names=T, recursive=FALSE)
+print (files)
+```
+
 
 En la subcarpeta output/ dejaremos los ficheros de salida ya filtrados y limpiados
 
@@ -34,33 +45,143 @@ Leemos el fichero de maestro de candidatos y vamos a ir eliminando candidatos po
 Primero anonimizados, nombre en blanco, email en blanco, emails con formato inválido
 ```{r}
 nombre <- "datos_originales/01-Candidatos_Datos_Personales.csv"
-fichero_candidatos <- read.csv2(nombre, sep = "~", quote = "", fileEncoding = "UTF-8", stringsAsFactors = TRUE)
-candidatos_maestro <- tbl_df(fichero_candidatos)
+candidatos_maestro <- read.csv2(nombre, sep = "~", quote = "", fileEncoding = "UTF-8", stringsAsFactors = TRUE)
+candidatos_maestro <- tbl_df(candidatos_maestro)
 candidatos_maestro <- filter(candidatos_maestro, NOMBRE != "XXXXXX")
 candidatos_maestro <- filter(candidatos_maestro, NOMBRE != "")
 candidatos_maestro <- filter(candidatos_maestro, EMAIL != "")
 emails_incorectos <- filter(candidatos_maestro,!isValidEmail(EMAIL))
 candidatos_maestro <- filter(candidatos_maestro, isValidEmail(EMAIL))
 ```
-Estos son una muestra de los emails eliminados por tener un formato inválido
+Estos son los emails eliminados por tener un formato inválido
 ```{r}
-print(emails_incorectos$EMAIL)
+print(emails_incorectos["EMAIL"])
 ```
 
-Tampoco vamos a cargar los candidatos que ya están incorporados como empleados
+
+
+
+De los que quedan, vamos a extraer los ID de candidatos de los actualizados en los últimos 24 meses
+
+```{r}
+fecha_desde <- today() - months(24)
+fecha_hasta <- today()
+```
+Y nos salen
+```{r}
+candidatos_historicos <- candidatos_maestro %>%
+                        filter(dmy_hms(FECHA_ACTUALIZACION) >= fecha_desde) %>%
+                        select(ID_CANDIDATO)
+print(nrow(candidatos_historicos))
+```
+
+
+Antes de seguir eliminando candidatos por otros criterios, tenemos que identificar cuáles de ellos están en procesos vivos, no sea que eliminemos candidatos actualizados hace mucho pero que están en un proceso vivo
+
+#Maestro de Procesos
+
+Tenemos que leer el fichero maestro de procesos de selección (que son tres: especialistas, becarios y masivos) abiertos para identificar qué procesos están "vivos""
+
+Estos serán los criterios de filtrado a definir por el usuario antes de ejecutar la carga
+```{r}
+gestores_filtro <- c("Naiara Martínez", "Elena Herbosa", "Sara Abad", "Susana Gutierrez", "")
+masivos_filtro <- c("12841","12842")
+becarios_filtro <- c("Naiara Martínez", "Elena Herbosa", "Sara Abad", "Susana Gutierrez", "")
+```
+
+
+
+```{r}
+nombre <- "datos_originales/19-Procesos_Masivos.csv"
+masivos_maestro <- read.csv2(nombre, sep = "~", quote = "", fileEncoding = "UTF-8", stringsAsFactors = TRUE)
+masivos_maestro <- tbl_df(masivos_maestro)
+
+nombre <- "datos_originales/20-Procesos_Especialistas.csv"
+especialistas_maestro <- read.csv2(nombre, sep = "~", quote = "", fileEncoding = "UTF-8", stringsAsFactors = TRUE)
+especialistas_maestro <- tbl_df(especialistas_maestro)
+
+nombre <- "datos_originales/21-Procesos_Becarios.csv"
+becarios_maestro <- read.csv2(nombre, sep = "~", quote = "", fileEncoding = "UTF-8", stringsAsFactors = TRUE)
+becarios_maestro <- tbl_df(becarios_maestro)
+
+procesos_activos <- especialistas_maestro %>%
+                        filter(ESTADO_PROCESO == "Abierto", GESTOR %in% gestores_filtro) %>%
+                        select(ID_PROCESO)
+
+procesos_activos <- masivos_maestro %>%
+        filter(ACTIVO == "Sí", ID_PROCESO %in% masivos_filtro) %>%
+        select(ID_PROCESO) %>%
+        bind_rows(procesos_activos)
+
+procesos_activos <- becarios_maestro %>%
+        filter(ESTADO_PROCESO == "Abierto", GESTOR %in% becarios_filtro) %>%
+        select(ID_PROCESO) %>%
+        bind_rows(procesos_activos)
+```
+
+Nos salen los siguientes procesos activos, entre becarios, masivos y especialistas
+```{r}
+print(nrow(procesos_activos))
+```
+
+
+#Candidatos en procesos Vivos
+
+Tenemos que extraer los ID de los candidatos asociados a los procesos vivos, independientemente del estado del candidato
+
+
+```{r}
+nombre <- "datos_originales/33-Procesos_Candidatos_Inscritos.csv"
+candidatos_inscritos <- read.csv2(nombre, sep = "~", quote = "", fileEncoding = "UTF-8", stringsAsFactors = TRUE)
+candidatos_inscritos <- tbl_df(candidatos_inscritos)
+
+candidatos_procesos_vivos <- candidatos_inscritos %>%
+                        filter(ID_PROCESO %in% procesos_activos$ID_PROCESO) %>%
+                        select(ID_CANDIDATO)
+```
+
+Nos salen
+```{r}
+print(nrow(candidatos_procesos_vivos))
+```
+
+
+
+Juntando los candidatos en procesos vivos, y los candidatos actualizados recientemente, tenemos el siguiente número de candidatos
+
+```{r}
+candidatos_a_migrar <- bind_rows(candidatos_procesos_vivos,candidatos_historicos) %>% distinct()
+print(nrow(candidatos_a_migrar))
+```
+
+Vamos a eliminar por tanto todos los candidatos que no estén en esa lista y a ver cuántos quedan
+
+```{r}
+candidatos_maestro <- filter(candidatos_maestro, ID_CANDIDATO %in% candidatos_a_migrar$ID_CANDIDATO)
+print(nrow(candidatos_maestro))
+```
+
+Si no coinciden los números es porque hay candidatos que hemos eliminado previamente por alguno de los otros criterios. 
+
+
+
+
+#Filtros Adicionales en Candidatos
+
+Tampoco vamos a cargar los candidatos que ya están incorporados como empleados con anterioridad a 1/1/2017. 
 ```{r}
 candidatos_maestro <- filter(candidatos_maestro, ESTADO != "Incorporado")
 
 ```
 
-También vamos a eliminar los candidatos probablemente de prueba que tienen "infojobs" o "infoempleo" en su correo electrónico
+También vamos a eliminar los candidatos probablemente de prueba que tienen "infojobs" o "infoempleo" o "vacio.com" en su correo electrónico
 ```{r}
 candidatos_maestro <- filter(candidatos_maestro, !(EMAIL %like% "@infojobs"))
 candidatos_maestro <- filter(candidatos_maestro, !(EMAIL %like% "@infoempleo"))
 candidatos_maestro <- filter(candidatos_maestro, !(EMAIL %like% "@vacio.com"))
 ```
 
-De los candidatos duplicados cargaremos únicamente una ocurrencia, la de fecha de actualización más reciente. Estos son alugunos de los repetidos
+De los candidatos duplicados trataremos de cargar únicamente una ocurrencia. Estos son algunos de los repetidos
 ```{r}
 emails_repetidos <- candidatos_maestro %>% group_by(EMAIL) %>%
         summarise(count = n()) %>% 
@@ -68,13 +189,20 @@ emails_repetidos <- candidatos_maestro %>% group_by(EMAIL) %>%
 print(emails_repetidos)
 ```
 
-Eliminamos pues los candidatos duplicados, dejando únicamente uno por email, el de fecha de actualización más reciente
+Eliminamos pues los candidatos duplicados, dejando únicamente los que estén asociados a procesos
 ```{r}
-candidatos_maestro <- candidatos_maestro %>% 
-        arrange(desc(dmy_hms(FECHA_ACTUALIZACION)), desc(ID_CANDIDATO)) %>%
-        distinct(EMAIL,.keep_all = TRUE) %>%
-        arrange(ID_CANDIDATO)
+#Obtenemos una lista de emails y candidatos
+candidatos_con_problemas <- candidatos_maestro %>%
+                                filter(EMAIL %in% emails_repetidos$EMAIL) %>%
+                                select(ID_CANDIDATO)
+#Ahora miramos cuáles de estos están asociados a procesos y eliminamos el resto
+candidatos_con_problemas <- candidatos_con_problemas %>%
+                                filter(!(ID_CANDIDATO %in% candidatos_procesos_vivos$ID_CANDIDATO))
+#Ahora eliminamos estos candidatos del maestro
+candidatos_maestro <- filter(candidatos_maestro, !(ID_CANDIDATO %in% candidatos_con_problemas$ID_CANDIDATO))
+
 ```
+
 
 Comprobamos si quedan duplicados
 ```{r}
@@ -84,63 +212,60 @@ emails_repetidos <- candidatos_maestro %>% group_by(EMAIL) %>%
 print(emails_repetidos)
 ```
 
-A ver cuántos candidatos nos quedan (por fecha de actualización):
+Si quedan emails repetidos, tenemos un problema ya que se trata de personas que se han apuntado a dos procesos vigentes, con dos IDs de candidato distinto pero idéntico email. En Cornerstone sólo se puede cargar uno de los dos puesto que la clave principal es el email, el usuario de acceso a Cornerstone será el email y además será uno de los medios de contacto con el candidato por lo que no lo podemos cambiar. 
+
+
+
+PENSAR QUE HACER 
+
+
+
+
+
+
+A ver cuántos candidatos nos quedan:
 ```{r}
 fechas <- select(candidatos_maestro,ID_CANDIDATO,FECHA_ACTUALIZACION)
 fechas$FECHA_ACTUALIZACION <- as.POSIXct(date(dmy_hms(fechas$FECHA_ACTUALIZACION)))
 ggplot(fechas, aes(FECHA_ACTUALIZACION)) + 
         geom_histogram(aes(fill=..count..)) +
-        labs(title="Histograma de Candidatos Actualizados (mensual)") +
+        labs(title="Histograma de Candidatos por fecha de última actualización") +
         labs(x="Fecha", y="Número de Actualizaciones") + 
-        scale_x_datetime(breaks = date_breaks("18 months"),
+        scale_x_datetime(breaks = date_breaks("12 months"),
                          labels = date_format("%Y-%b")
                           )
-
-```
-
-Y por fecha de alta
-```{r}
 fechas <- select(candidatos_maestro,ID_CANDIDATO,FECHA_ALTA)
 fechas$FECHA_ALTA <- as.POSIXct(date(dmy_hms(fechas$FECHA_ALTA)))
 ggplot(fechas, aes(FECHA_ALTA)) + 
         geom_histogram(aes(fill=..count..)) +
-        labs(title="Histograma de Candidatos dados de alta (mensual)") +
-        labs(x="Fecha", y="Número de Actualizaciones") + 
-        scale_x_datetime(breaks = date_breaks("18 months"),
+        labs(title="Histograma de Candidatos por fecha de alta") +
+        labs(x="Fecha", y="Número de Altas") + 
+        scale_x_datetime(breaks = date_breaks("24 months"),
                          labels = date_format("%Y-%b")
         )
+
 ```
 
-Vamos a ver mejor los últimos dos años, desde Junio del 2015
+
+
+
+# Filtrado del resto de ficheros
+
+Ahora tenemos por un lado el listado de candidatos a migrar y por otro el listado de procesos a migrar.
+Ahora hay que procesar todos y cada uno de los ficheros CSV de entrada y filtrarlos para dejar únicamente los candidatos, procesos, o la combinación de ámbos.
+
+
+
 
 ```{r}
-fechas <- select(candidatos_maestro,ID_CANDIDATO,FECHA_ACTUALIZACION)
-fechas$FECHA_ACTUALIZACION <- as.POSIXct(date(dmy_hms(fechas$FECHA_ACTUALIZACION)))
-ggplot(fechas, aes(FECHA_ACTUALIZACION)) + 
-        geom_histogram(aes(fill=..count..)) +
-        labs(title="Histograma de Candidatos Actualizados (mensual)") +
-        labs(x="Fecha", y="Número de Actualizaciones") + 
-        scale_x_datetime(breaks = date_breaks("2 months"),
-                         labels = date_format("%Y-%b"),
-                         limits = c(as.POSIXct("2015-06-01"), 
-                                    as.POSIXct("2017-06-01"))
-                          )
+fileNames <- list.files(path = "datos_originales", pattern="*.csv", full.names=T, recursive=FALSE)
+lapply(fileNames, function (x) {
+        read.csv2(x, sep = "~", quote = "", fileEncoding = "UTF-8", stringsAsFactors = TRUE)
+})
 
+
+        
 ```
 
-```{r}
-
-fechas <- select(candidatos_maestro,ID_CANDIDATO,FECHA_ALTA)
-fechas$FECHA_ALTA <- as.POSIXct(date(dmy_hms(fechas$FECHA_ALTA)))
-ggplot(fechas, aes(FECHA_ALTA)) + 
-        geom_histogram(aes(fill=..count..)) +
-        labs(title="Histograma de Candidatos dados de alta (mensual)") +
-        labs(x="Fecha", y="Número de Actualizaciones") + 
-        scale_x_datetime(breaks = date_breaks("2 months"),
-                         labels = date_format("%Y-%b"),
-                         limits = c(as.POSIXct("2015-06-01"), 
-                                    as.POSIXct("2017-06-01"))
-        )
-```
 
 
