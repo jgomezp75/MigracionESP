@@ -36,6 +36,7 @@ En la subcarpeta datos_originales/ están todos los archivos fuente obtenidos de
 ```{r}
 files <- list.files(path="datos_originales", pattern="*.csv", full.names=T, recursive=FALSE)
 print (files)
+rm(files)
 ```
 
 
@@ -64,6 +65,7 @@ print(emails_incorectos["EMAIL"])
 candidatos_maestro <- filter(candidatos_maestro, !(EMAIL %like% "@infojobs"))
 candidatos_maestro <- filter(candidatos_maestro, !(EMAIL %like% "@infoempleo"))
 candidatos_maestro <- filter(candidatos_maestro, !(EMAIL %like% "@vacio.com"))
+candidatos_maestro <- filter(candidatos_maestro, !(EMAIL %like% "@nada"))
 ```
 
 De los que quedan, vamos a extraer los ID de candidatos de los actualizados en los últimos 24 meses
@@ -128,7 +130,10 @@ procesos_activos <- becarios_maestro %>%
 ofertas_activas <- ofertas_maestro %>%
         filter(dmy_hms(FECHA_FIN) > today()) %>%
         select(REFERENCIA) 
-
+rm(masivos_maestro)
+rm(especialistas_maestro)
+rm(becarios_maestro)
+rm(ofertas_maestro)
 ```
 
 Nos salen los siguientes procesos activos, entre becarios, masivos y especialistas
@@ -144,7 +149,6 @@ Tenemos que extraer los ID de los candidatos asociados a los procesos vivos, ind
 nombre <- "datos_originales/33-Procesos_Candidatos_Inscritos.csv"
 candidatos_inscritos <- fread(nombre, sep = "~", quote = "", encoding = "UTF-8", stringsAsFactors = TRUE, fill = TRUE, data.table = TRUE)
 candidatos_inscritos <- tbl_df(candidatos_inscritos)
-
 candidatos_procesos_vivos <- candidatos_inscritos %>%
                         filter(ID_PROCESO %in% procesos_activos$ID_PROCESO) %>%
                         select(ID_CANDIDATO)
@@ -183,7 +187,7 @@ candidatos_procesos_vivos <- temp %>%
         select(ID_CANDIDATO) %>%
         bind_rows(candidatos_procesos_vivos) %>%
         distinct()
-
+rm(candidatos_inscritos)
 ```
 
 Nos salen
@@ -203,6 +207,7 @@ Vamos a eliminar por tanto todos los candidatos que no estén en esa lista y a v
 ```{r}
 candidatos_maestro <- filter(candidatos_maestro, ID_CANDIDATO %in% candidatos_a_migrar$ID_CANDIDATO)
 print(nrow(candidatos_maestro))
+rm(candidatos_a_migrar)
 ```
 
 Si no coinciden los números es porque hay candidatos que hemos eliminado previamente por alguno de los otros criterios. 
@@ -238,10 +243,19 @@ contratados_viejos <- especialistas_contratados_viejos %>%
 
 candidatos_maestro <- candidatos_maestro %>%
         filter(!(ID_CANDIDATO %in% contratados_viejos$ID_CANDIDATO))
+rm(becarios_contratados_viejos)
+rm(contratados_viejos)
+rm(especialistas_contratados_viejos)
+```
+
+Tampoco cargamos candidatos cuyo CV no está activo
+```{r}
+candidatos_maestro <- filter(candidatos_maestro, CV_ACTIVO == "Si")
 ```
 ```{r}
 print(nrow(candidatos_maestro))
 ```
+
 
 De los candidatos duplicados trataremos de cargar únicamente una ocurrencia. Estos son algunos de los repetidos
 ```{r}
@@ -249,6 +263,7 @@ emails_repetidos <- candidatos_maestro %>% group_by(EMAIL) %>%
         summarise(count = n()) %>% 
         arrange(desc(count)) %>% filter(count > 1)
 print(emails_repetidos)
+rm(emails_repetidos)
 ```
 
 Eliminamos candidatos duplicados, dejando únicamente duplicados si están asociados a procesos
@@ -270,6 +285,9 @@ candidatos_eliminar <- candidatos_maestro %>%
 
 #Ahora eliminamos estos candidatos del maestro
 candidatos_maestro <- filter(candidatos_maestro, !(ID_CANDIDATO %in% candidatos_eliminar$ID_CANDIDATO))
+rm(candidatos_a_unificar)
+rm(candidatos_mantener)
+rm(candidatos_eliminar)
 ```
 
 
@@ -279,6 +297,7 @@ emails_repetidos <- candidatos_maestro %>% group_by(EMAIL) %>%
         summarise(count = n()) %>% 
         arrange(desc(count)) %>% filter(count > 1)
 print(emails_repetidos)
+rm(emails_repetidos)
 ```
 
 Si quedan duplicados puede ser por dos motivos:
@@ -295,7 +314,7 @@ candidatos_a_unificar <- candidatos_maestro %>%
                                 filter(!(ID_CANDIDATO %in% candidatos_procesos_vivos$ID_CANDIDATO))
 #y nos los cargamos
 candidatos_maestro <- filter(candidatos_maestro, !(ID_CANDIDATO %in% candidatos_a_unificar$ID_CANDIDATO))
-
+rm(candidatos_a_unificar)
 ```
 
 
@@ -305,6 +324,7 @@ emails_repetidos <- candidatos_maestro %>% group_by(EMAIL) %>%
         summarise(count = n()) %>% 
         arrange(desc(count)) %>% filter(count > 1)
 print(emails_repetidos)
+rm(emails_repetidos)
 ```
 
 
@@ -339,7 +359,6 @@ ggplot(fechas, aes(FECHA_ALTA)) +
         scale_x_datetime(breaks = date_breaks("24 months"),
                          labels = date_format("%Y-%b")
         )
-
 ```
 
 
@@ -385,8 +404,32 @@ for(x in 1:length(fileNames)) {
 }
 ```
 
+
+# Limpieza adicional
+
+Con los ficheros ya filtrados, los vamos procesando uno a uno y realizando limpiezas adicionales
+```{r}
+fileNames <- list.files(path = "temp", pattern="*.csv", full.names=T, recursive=FALSE)
+fileNamesOut <- file.path("out",list.files(path = "datos_originales", pattern="*.csv", recursive=FALSE))
+for(x in 1:length(fileNames)) {
+        t<-fread(fileNames[x], sep = "~", quote = "", encoding = "UTF-8", stringsAsFactors = TRUE, fill = TRUE, data.table = TRUE)
+        if (fileNames[x] == "temp/01-Candidatos_Datos_Personales.csv") {
+                t$TELEFONO <- gsub("[^0-9]", "", t$TELEFONO)
+                t$TELEFONO_MOVIL <- gsub("[^0-9]", "", t$TELEFONO_MOVIL)
+        }
+        fwrite(t,fileNamesOut[x], sep = "~")
+        rm(t)
+        gc()
+}
+```
+
+
+
+
+
+
 Vamos a descargar las fotos y los adjuntos y dejarlos en una carpeta llamada output/fotos y output/adjuntos
-```{r, include=FALSE}
+```{r, eval=FALSE, include=FALSE}
 fotos <- as.character(candidatos_maestro$FOTOGRAFIA)
 ficheros_fotos <- substr(fotos, nchar("http://cdn.epreselec.com/bbva/Fotos/")+1, nchar(fotos))
 ficheros_fotos_out <- paste("output/fotos/",ficheros_fotos,sep="")
@@ -396,5 +439,14 @@ for (i in 1:length(ficheros_fotos)) {
         }
 }
 
+nombre <- "temp/17-Candidatos_Otros_Datos_Documentos.csv"
+cvs <- fread(nombre, sep = "~", quote = "", encoding = "UTF-8", stringsAsFactors = TRUE, fill = TRUE, data.table = TRUE)
+documentos <- as.character(cvs$DOCUMENTO) 
+ficheros_docs <- substr(documentos, nchar("http://cdn.epreselec.com/bbva/Documentos/")+1, nchar(documentos))
+ficheros_docs_out <- paste("output/adjuntos/",ficheros_docs,sep="")
+for (i in 1:length(ficheros_docs)) {
+        if (documentos[i] != "") {
+                try(download(documentos[i],destfile=ficheros_docs_out[i]))
+        }
+}
 ```
-
