@@ -34,6 +34,7 @@ El objetivo de este script es el filtrado de los datos de origen de e-Preselec E
 En la subcarpeta datos_originales/ están todos los archivos fuente obtenidos de e-Preselec ESP
 
 ```{r}
+ptm <- proc.time()
 files <- list.files(path="datos_originales", pattern="*.csv", full.names=T, recursive=FALSE)
 print (files)
 rm(files)
@@ -263,7 +264,6 @@ emails_repetidos <- candidatos_maestro %>% group_by(EMAIL) %>%
         summarise(count = n()) %>% 
         arrange(desc(count)) %>% filter(count > 1)
 print(emails_repetidos)
-rm(emails_repetidos)
 ```
 
 Eliminamos candidatos duplicados, dejando únicamente duplicados si están asociados a procesos
@@ -297,7 +297,6 @@ emails_repetidos <- candidatos_maestro %>% group_by(EMAIL) %>%
         summarise(count = n()) %>% 
         arrange(desc(count)) %>% filter(count > 1)
 print(emails_repetidos)
-rm(emails_repetidos)
 ```
 
 Si quedan duplicados puede ser por dos motivos:
@@ -410,7 +409,7 @@ for(x in 1:length(fileNames)) {
 Con los ficheros ya filtrados, los vamos procesando uno a uno y realizando limpiezas adicionales
 ```{r}
 fileNames <- list.files(path = "temp", pattern="*.csv", full.names=T, recursive=FALSE)
-fileNamesOut <- file.path("out",list.files(path = "datos_originales", pattern="*.csv", recursive=FALSE))
+fileNamesOut <- file.path("output",list.files(path = "temp", pattern="*.csv", recursive=FALSE))
 for(x in 1:length(fileNames)) {
         t<-fread(fileNames[x], sep = "~", quote = "", encoding = "UTF-8", stringsAsFactors = TRUE, fill = TRUE, data.table = TRUE)
         if (fileNames[x] == "temp/01-Candidatos_Datos_Personales.csv") {
@@ -450,3 +449,8 @@ for (i in 1:length(ficheros_docs)) {
         }
 }
 ```
+
+```{r}
+proc.time() - ptm
+```
+
