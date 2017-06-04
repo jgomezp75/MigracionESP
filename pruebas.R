@@ -4,6 +4,7 @@ library(lubridate)
 library(ggplot2)
 library(scales)
 
+
 isValidEmail <- function(x) {
         grepl("\\<[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}\\>", as.character(x), ignore.case=TRUE)
 }
@@ -78,12 +79,25 @@ masivos_maestro <- tbl_df(fichero_masivos)
 
 
 fileNames <- list.files(path = "datos_originales", pattern="*.csv", full.names=T, recursive=FALSE)
-lapply(fileNames, function (x) {
-        t<-read.csv2(x, sep = "~", quote = "", fileEncoding = "UTF-8", stringsAsFactors = TRUE)
-        str(t)
+fileNamesOut <- file.path("temp",list.files(path = "datos_originales", pattern="*.csv", recursive=FALSE))
+for(x in 1:length(fileNames)) {
+        t<-fread(fileNames[x], sep = "~", quote = "", encoding = "UTF-8", stringsAsFactors = TRUE, fill = TRUE, data.table = TRUE)
+        print (fileNames[x])
+        if ("ID_PROCESO" %in% colnames(t)) {
+                t <- t %>% filter(ID_PROCESO %in% procesos_activos$ID_PROCESO)
+        }
+        else {
+                if ("ID_CANDIDATO" %in% colnames(t)) {
+                        t <- t %>% filter(ID_CANDIDATO %in% candidatos_maestro$ID_CANDIDATO)
+                }
+                else {
+                        print ("FILTRO POR OFERTA")
+                }
+        }
+        fwrite(t,fileNamesOut[x], sep = "~")
         rm(t)
         gc()
-})
+}
 
 
 
