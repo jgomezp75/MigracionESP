@@ -55,28 +55,19 @@ En la subcarpeta output/ dejaremos los ficheros de salida ya filtrados y limpiad
 #Maestro de Candidatos
 
 Leemos el fichero de maestro de candidatos y vamos a ir eliminando candidatos por diferentes criterios
-* Primero anonimizados, nombre en blanco, email en blanco, emails con formato inválido
+* Primero anonimizados, nombre en blanco, email en blanco, emails ficticios
 ```{r}
 nombre <- "datos_originales/01-Candidatos_Datos_Personales.csv"
 candidatos_maestro <- leerArchivo(nombre)
 candidatos_maestro <- filter(candidatos_maestro, NOMBRE != "XXXXXX")
 candidatos_maestro <- filter(candidatos_maestro, NOMBRE != "")
 candidatos_maestro <- filter(candidatos_maestro, EMAIL != "")
-emails_incorectos <- filter(candidatos_maestro,!isValidEmail(EMAIL))
-candidatos_maestro <- filter(candidatos_maestro, isValidEmail(EMAIL))
-```
-Estos son los emails eliminados por tener un formato inválido
-```{r}
-print(emails_incorectos["EMAIL"])
-```
-
-* También vamos a eliminar los candidatos probablemente de prueba que tienen "infojobs" o "infoempleo" o "vacio.com" en su correo electrónico
-```{r}
 candidatos_maestro <- filter(candidatos_maestro, !(EMAIL %like% "@infojobs"))
 candidatos_maestro <- filter(candidatos_maestro, !(EMAIL %like% "@infoempleo"))
 candidatos_maestro <- filter(candidatos_maestro, !(EMAIL %like% "@vacio.com"))
 candidatos_maestro <- filter(candidatos_maestro, !(EMAIL %like% "@nada"))
 ```
+
 
 De los que quedan, vamos a extraer los ID de candidatos de los actualizados en los últimos 24 meses
 ```{r}
@@ -100,16 +91,16 @@ Tenemos que leer el fichero maestro de procesos de selección (que son tres: esp
 
 Estos serán los criterios de filtrado a definir por el usuario antes de ejecutar la carga
 ```{r}
-gestores_filtro <- c("Naiara Martínez", "Elena Herbosa", "Sara Abad", "Susana Gutierrez", "")
-masivos_filtro <- c("12841","12842")
-becarios_filtro <- c("Naiara Martínez", "Elena Herbosa", "Sara Abad", "Susana Gutierrez", "")
+# Estos filtros no son necesarios si migramos toda España
+#gestores_filtro <- c("Naiara Martínez", "Elena Herbosa", "Sara Abad", "Susana Gutierrez", "")
+# masivos_filtro <- c("12841","12842")
+# becarios_filtro <- c("Naiara Martínez", "Elena Herbosa", "Sara Abad", "Susana Gutierrez", "")
 ```
 
 
 
 ```{r}
 #PENDIENTE DETERMINAR SI USAMOS ALGUN CRITERIO MAS PARA DEFINIR QUE UN PROCESO ESTÉ ACTIVO
-#PENDIENTE CRITERIO PARA OFERTAS HOLDING
 nombre <- "datos_originales/19-Procesos_Masivos.csv"
 masivos_maestro <- leerArchivo(nombre)
 
@@ -123,22 +114,22 @@ nombre <- "datos_originales/37-Ofertas.csv"
 ofertas_maestro <- leerArchivo(nombre)
 
 
-procesos_activos <- especialistas_maestro %>%
-                        filter(ESTADO_PROCESO == "Abierto", GESTOR %in% gestores_filtro) %>%
-                        select(ID_PROCESO)
+#procesos_activos <- especialistas_maestro %>%
+#                        filter(ESTADO_PROCESO == "Abierto", GESTOR %in% gestores_filtro) %>%
+#                        select(ID_PROCESO)
 
 procesos_activos <- masivos_maestro %>%
-        filter(ACTIVO == "Sí", ID_PROCESO %in% masivos_filtro) %>%
+        filter(ACTIVO == "Sí") %>%
         select(ID_PROCESO) %>%
         bind_rows(procesos_activos)
 
 procesos_activos <- becarios_maestro %>%
-        filter(ESTADO_PROCESO == "Abierto", GESTOR %in% becarios_filtro) %>%
+        filter(ESTADO_PROCESO == "Abierto") %>%
         select(ID_PROCESO) %>%
         bind_rows(procesos_activos)
 
 ofertas_activas <- ofertas_maestro %>%
-        filter(dmy_hms(FECHA_FIN) > today()) %>%
+        filter(dmy_hms(FECHA_FIN) > dmy("01-04-2017")) %>%
         select(REFERENCIA) 
 rm(masivos_maestro)
 rm(especialistas_maestro)
@@ -227,36 +218,6 @@ Si no coinciden los números es porque hay candidatos que hemos eliminado previa
 
 #Filtros Adicionales en Candidatos
 
-No vamos a cargar los candidatos que  están incorporados como empleados con anterioridad a 1/1/2017. Nos quedan:
-```{r}
-#Tenemos que leer un fichero con la fecha de incorporación de cada candidato. Eso lo tendremos en varios ficheros 
-nombre <- "datos_originales/34-Procesos_Becarios_Progreso.csv"
-becarios_contratados_viejos <- leerArchivo(nombre)
-becarios_contratados_viejos <- tbl_df(becarios_contratados_viejos)
-contratados_viejos <- becarios_contratados_viejos %>%
-                        filter(ID_CANDIDATO %in% candidatos_maestro$ID_CANDIDATO) %>%
-                        filter(RESULTADO == "Candidato Incorporado") %>%
-                        filter(dmy_hms(FECHA_INCORPORACION) < ymd("2017-01-01")) %>%
-                        select(ID_CANDIDATO)
-
-
-nombre <- "datos_originales/35-Procesos_Especialistas_Progreso.csv"
-especialistas_contratados_viejos <- leerArchivo(nombre)
-especialistas_contratados_viejos <- tbl_df(especialistas_contratados_viejos)
-contratados_viejos <- especialistas_contratados_viejos %>%
-                        filter(ID_CANDIDATO %in% candidatos_maestro$ID_CANDIDATO) %>%
-                        filter(RESULTADO == "Candidato Incorporado") %>%
-                        filter(dmy_hms(FECHA_INCORPORACION) < ymd("2017-01-01")) %>%
-                        select(ID_CANDIDATO) %>%
-                        bind_rows(contratados_viejos)
-
-
-candidatos_maestro <- candidatos_maestro %>%
-        filter(!(ID_CANDIDATO %in% contratados_viejos$ID_CANDIDATO))
-rm(becarios_contratados_viejos)
-rm(contratados_viejos)
-rm(especialistas_contratados_viejos)
-```
 
 Tampoco cargamos candidatos cuyo CV no está activo
 ```{r}
@@ -265,6 +226,21 @@ candidatos_maestro <- filter(candidatos_maestro, CV_ACTIVO == "Si")
 ```{r}
 print(nrow(candidatos_maestro))
 ```
+
+
+tratamos de arreglar emails inválidos?
+```{r}
+emails_incorectos <- filter(candidatos_maestro,!isValidEmail(EMAIL))
+print(emails_incorectos["EMAIL"])
+
+```
+
+
+eliminamos los emails inválidos 
+```{r}
+candidatos_maestro <- filter(candidatos_maestro, isValidEmail(EMAIL))
+```
+
 
 
 De los candidatos duplicados trataremos de cargar únicamente una ocurrencia. Estos son algunos de los repetidos
@@ -337,7 +313,6 @@ rm(emails_repetidos)
 
 
 Si en este punto quedan emails repetidos, tenemos un problema ya que se trata de personas que se han apuntado a dos procesos vigentes, con dos IDs de candidato distinto pero idéntico email. En Cornerstone sólo se puede cargar uno de los dos puesto que la clave principal es el email, el usuario de acceso a Cornerstone será el email y además será uno de los medios de contacto con el candidato por lo que no lo podemos cambiar. 
-
 
 
 PENSAR QUE HACER 
@@ -424,6 +399,19 @@ for(x in 1:length(fileNames)) {
                 t$TELEFONO <- gsub("[^0-9]", "", t$TELEFONO)
                 t$TELEFONO_MOVIL <- gsub("[^0-9]", "", t$TELEFONO_MOVIL)
         }
+        if (fileNames[x] == "temp/02-Candidatos_Formacion_Parte1.csv") {
+                t$TITULO <- as.character(t$TITULO)
+                t$TITULO[t$TITULO==""] <- paste( as.character(t$NIVEL[t$TITULO==""]), as.character(t$AREA[t$TITULO==""]))
+                t$TITULO <- as.factor(t$TITULO)
+        }
+        if (fileNames[x] == "temp/03-Candidatos_Formacion_Parte2.csv") {
+                t$TITULO <- as.character(t$TITULO)
+                t$TITULO[t$TITULO==""] <- paste( as.character(t$NIVEL[t$TITULO==""]), as.character(t$AREA[t$TITULO==""]))
+                t$TITULO <- as.factor(t$TITULO)
+        }
+        if (fileNames[x] == "temp/17-Candidatos_Otros_Datos_Documentos.csv") {
+                
+        }
         fwrite(t,fileNamesOut[x], sep = "~")
         rm(t)
         gc()
@@ -445,6 +433,10 @@ for (i in 1:length(ficheros_fotos)) {
                 try(download(fotos[i],destfile=ficheros_fotos_out[i]))
         }
 }
+
+```
+
+```{r, eval=FALSE, include=FALSE}
 
 nombre <- "temp/17-Candidatos_Otros_Datos_Documentos.csv"
 cvs <- leerArchivo(nombre) 
